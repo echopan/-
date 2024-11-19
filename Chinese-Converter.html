@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>简繁转换器</title>
+  <script src="./lib/jszip/jszip.js"></script>
+  <script src="./lib/jquery/jquery-1.12.4.js"></script>
+  <script src="./lib/opencc-js/full.js"></script>
+  <script src="./lib/jschardet/jschardet.js"></script>
+  <script>
+    $(function () {
+      let nTxt = $('.preview').text();//转换结果
+      let ofile = $('#op-multi');//选择文件
+      let obtn = $('#op-btn');//选择按钮
+      let filename = 'result.txt';
+      let files = [];
+      let ifCvt = false;//是否转换完成
+      let flen = 0;//文件数
+      let zip;
+      /*切换源和目标语言*/
+      $("#switch").click(() => {
+        let s = $("#source");
+        let t = $("#target");
+        let tmp = s.val();
+        s.val(t.val());
+        t.val(tmp);
+      });
+      /*打开文件*/
+      obtn.click(() => { ofile.click(); });
+      ofile.change(function () {
+        if ($(this).prop('files').length == 0) return;
+        $('.preview').html("Hello World!");
+        $('.clue').text('');
+        zip = null;
+        filename = 'result.txt';
+        ifCvt = false;
+        files = $(this).prop('files');
+        flen = files.length;
+        obtn.next('span').html("已选择 " + flen + " 个文件");
+        wlog("已选择 " + flen + " 个文件", 'note');
+        if (flen == 0) return;
+        for (let i = 0; i < flen; i++) {
+          wlog(files[i].name);
+        }
+      });
+      /*文件转换*/
+      $('[id$=convert]').click(
+        function () {
+          let filePromises = [];
+          let s2o = $(this).is('#convert');
+          zip = new JSZip();
+          if (flen == 0) {
+            wlog("没有要转换的文件", "warn");
+            $('.clue').text('没有要转换的文件');
+            return;
+          }
+          wlog("文件转换中", "note");
+          $('.clue').text('文件转换中');
+          for (let i = 0; i < flen; i++) {
+            let promise = new Promise(function (resolve, reject) {
+              const reader = new FileReader();
+              const reader2 = new FileReader();
+              reader.onload = () => {
+                reader2.readAsText(files[i], jschardet.detect(reader.result).encoding);
+                reader2.onload = () => {
+                  resolve(reader2.result);
+                };
+              };
+              reader.readAsBinaryString(files[i]);
+            });
+            filePromises.push(promise);
+          }
+          Promise.all(filePromises).then(function (results) {
+            for (let i = 0; i < flen; i++) {
+              let text = results[i];
+              let f = files[i];
+              if (text == null) {
+                wlog(`文件 ${f.name} 读取失败`, "error");
+                continue;
+              }
+              if (text.replace(/\s/g, "") == "") {
+                wlog(`文件 ${f.name} 是空文件`, "warn");
+                continue;
+              }
+              filename = f.name.replace(/\.[\da-zA-Z]{1,5}$/, "_new" + f.name.match(
+                /\.[\da-zA-Z]{1,5}$/)[0]);
+              //convert转换 reconvert逆转
+              if (s2o) nTxt = Cvt($('#source').val(), $('#target').val())(text);
+              else nTxt = Cvt($('#target').val(), $('#source').val())(text);
+              if (flen == 1) $('.preview').html(nTxt.replace(/\n/g, '<br>'));
+              else zip.file(filename, nTxt);
+              ifCvt = true;
+            }
+            if (s2o) wlog(`${$('#source option:selected').text() + " → " + $('#target option:selected').text()} 转换完成`, 'note');
+            else wlog(`${$('#target option:selected').text() + " → " + $('#source option:selected').text()} 转换完成`, 'note');
+            $('.clue').text('转换完成√');
+          }).catch(function (error) {
+            wlog(error, "error")
+          });
+        }
+      );
+      /*下载*/
+      $('#download').click(function () {
+        if (flen == 0 || !ifCvt) {
+          wlog("没有可下载的文件", "warn");
+          $('.clue').html('没有可下载的文件');
+        }
+        else if (flen == 1) {
+          //单个文件
+          downloadFile(new Blob([nTxt]), filename);
+          wlog("下载文件", "note");
+        } else {
+          //多个文件
+          zip.generateAsync({ type: "blob" })
+            .then(function (content) {
+              //saveAs(content, new Date() + ".zip");
+              downloadFile(content, new Date() + ".zip");
+              wlog("下载压缩包", "note")
+            });
+        }
+      });
+      /*文本转换*/
+      $('#start').click(function () {
+        const txt = $('#sourceBox').val();
+        const nTxt = Cvt($('#source').val(), $('#target').val())(txt);
+        $('#targetBox').val(nTxt).select();
+      });
+      /*清空日志*/
+      $('#delog').click(function () {
+        $('.log-lines>code').html('');
+      })
+      /*开关日志*/
+      $('.slide-bar').click(function () {
+        let col = $(this).parent();
+        if (col.is('.minimize')) col.removeClass('minimize');
+        else col.addClass('minimize');
+      });
+    });
+    //下载
+    function downloadFile(blob, name) {
+      let url = URL.createObjectURL(blob);
+      let a = $(`<a>d</a>`);
+      a.css({ "display": "none" })
+        .attr({ 'href': url, 'download': name })
+        .appendTo($('body'));
+      a[0].click();
+      URL.revokeObjectURL(url);
+      a.remove();
+    }
+    //转换
+    function Cvt(src, obj) {
+      return OpenCC.Converter({
+        from: src,
+        to: obj
+      })
+    }
+    //写入日志
+    function wlog(i, lv) {
+      if (lv == null) lv = "info";
+      let log = $('.log-lines>code');
+      let content = $(`<span class='${lv}'>${getDate() + i}</span><br>`);
+      log.append(content);
+      log[0].scrollTop = log[0].scrollHeight;
+    }
+    //日期获取
+    function getDate() {
+      //Sun Oct 06 2024 10:23:37 GMT+0800
+      let d = (new Date() + "").split(" ");
+      let mo = (() => {
+        switch (d[1]) {
+          case "Jan": return "01";
+          case "Fab": return "02";
+          case "Mar": return "03";
+          case "Apr": return "04";
+          case "May": return "05";
+          case "Jun": return "06";
+          case "Jul": return "07";
+          case "Aug": return "08";
+          case "Sep": return "09";
+          case "Oct": return "10";
+          case "Nov": return "11";
+          case "Dec": return "12";
+        }
+      })();
+      return "[" + d[3].slice(-2) + "/" + mo + "/" + d[2] + " " + d[4].slice(0, 5) + "]";
+    }
+  </script>
+  <style>
+    ul {
+      list-style-type: none;
+    }
+
+    a {
+      text-decoration: none;
+      color: #000;
+    }
+
+    div {
+      margin: 6px;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .tools {
+      width: max(80%, 500px);
+      overflow-y: scroll;
+      height: 100%;
+    }
+
+    .tools::-webkit-scrollbar {
+      display: none;
+    }
+
+    .preview {
+      font-family: 'Courier New', '华文细黑', Courier, monospace;
+      font-style: italic;
+      color: rgb(255, 255, 255);
+      background-color: rgb(128, 133, 119);
+      /* width: max(55%, 230px); */
+      width: max(65%, 230px);
+      max-height: max(55%, 330px);
+      border: 1px solid;
+      padding: 5px;
+      padding-top: 15px;
+      padding-right: 10px;
+    }
+
+    textarea {
+      resize: none;
+      padding: 10px;
+    }
+
+    .box {
+      padding-left: 30px;
+    }
+
+    button#start {
+      background-color: rgb(108, 181, 104);
+      border: 0;
+      color: white;
+      font-size: 18px;
+      letter-spacing: 5px;
+      box-shadow: 1.3px 1.3px 5px -1px rgb(93, 93, 93);
+      margin: 15px;
+      width: 150px;
+      height: 40px;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    button#start:hover {
+      filter: brightness(0.96);
+      box-shadow: 1.3px 1.3px 5px -1px rgb(93, 93, 93) inset;
+    }
+
+    button#start {
+      margin-left: 130px;
+      height: 40px;
+      width: 250px;
+    }
+
+    .clue {
+      color: #16A43B;
+    }
+
+    .note {
+      color: #0C86B0;
+    }
+
+    .error {
+      color: #D51B18;
+    }
+
+    .warn {
+      color: #D58E25;
+    }
+
+    .info {
+      color: #4C4B44;
+    }
+
+    h1 {
+      z-index: -1;
+      position: absolute;
+      right: 150px;
+      top: 333px;
+      color: rgb(239, 246, 240);
+      transform: rotate(15deg);
+    }
+
+    .tools h2 {
+      padding-bottom: 0.3em;
+      padding-right: 1em;
+      border-bottom: 1px solid;
+      margin: 0;
+    }
+
+    .tools .tools-sticky {
+      padding-bottom: 0.1em;
+      background-color: #fff;
+      position: sticky;
+      top: 0;
+    }
+
+    hr {
+      margin: 0;
+    }
+
+    .log-box {
+      padding-top: 10px;
+      display: grid;
+      position: absolute;
+      right: 1.2em;
+      top: 1.2em;
+      z-index: 999;
+      border: 0.3px solid #bbb;
+      border-radius: 3px;
+      width: min(max(36%, 200px), 500px);
+      height: min(max(70%, 250px), 600px);
+      background-color: #fff;
+      box-shadow: 1px 1px 5px -3px #666;
+      grid-template-rows: 1fr 2em 12px;
+      grid-template-columns: 1fr 2em;
+      place-content: stretch;
+      overflow: hidden;
+      justify-content: center;
+      transition: all .3s;
+    }
+
+    .minimize {
+      width: 25px;
+      height: 20px;
+      transition: all .3s;
+    }
+
+    .minimize div:not(.slide-bar) {
+      display: none;
+    }
+
+    .minimize .slide-bar {
+      grid-row: 1 / 4;
+      line-height: normal;
+    }
+
+    .log-box>div {
+      margin: 0;
+    }
+
+    .auther,
+    .slide-bar {
+      grid-column: 1/4;
+      text-align: center;
+    }
+
+    .auther {
+      line-height: 1.6em;
+      user-select: none;
+    }
+
+    .slide-bar {
+      border-top: 0.3px solid #eee;
+      user-select: none;
+      line-height: 8px;
+      color: #888;
+      background-image: linear-gradient(to left top, #ddd, #eee, #fff);
+    }
+
+    .slide-bar:hover {
+      background-image: linear-gradient(to left top, #bbb, #ddd, #eee);
+      box-shadow: 0 1px 5px -2px #888;
+    }
+
+    .log-lines {
+      padding: 0 3px 6px 3px;
+      overflow: hidden;
+    }
+
+    .log-lines code {
+      display: block;
+      padding: 3px;
+      padding-bottom: 0;
+      border: 1px solid #ddd;
+      height: 100%;
+      font-size: 10px;
+    }
+
+    .beauty-scrollbar {
+      overflow-y: scroll;
+      overflow-x: hidden;
+      word-wrap: break-word;
+      word-break: break-all;
+    }
+
+    .beauty-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .beauty-scrollbar::-webkit-scrollbar-track {
+      background: #ffffff00;
+      border-radius: 99em;
+    }
+
+    .beauty-scrollbar::-webkit-scrollbar-thumb {
+      background: #aaaaaaaa;
+      border-radius: 99em;
+    }
+
+    .beauty-scrollbar::-webkit-scrollbar-thumb:active,
+    .beauty-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #666666aa;
+      border-radius: 99em;
+    }
+
+    .clean-log {
+      text-align: center;
+      padding-top: 0.5em;
+    }
+
+    #delog {
+      width: 1.8em;
+      height: 5em;
+      padding: 0;
+    }
+
+    .sel-no,
+    button {
+      user-select: none;
+    }
+
+    .author {
+      cursor: pointer;
+      color: #2974B2;
+    }
+
+    .author:hover {
+      text-decoration: underline;
+    }
+
+    .select-area {
+      display: flex;
+    }
+
+    .select-area>section:nth-child(2) {
+      padding-left: 0.5em;
+      align-self: center;
+    }
+  </style>
+</head>
+
+<body>
+  <h1 class="sel-no">
+    by echo pan 23|10.22
+  </h1>
+  <section class="tools">
+    <section class="tools-sticky">
+      <h2 class="sel-no">简繁转换器</h2>
+      <h3 class="sel-no">【文件转换】</h3>
+      <div class="sel-no select-area">
+        <section>
+          <div class="sel-no">源语言：<select name="source" id="source">
+              <option value="cn">简中</option>
+              <option value="tw" selected>台湾</option>
+              <option value="twp">台湾本土化</option>
+              <option value="hk">香港</option>
+              <option value="jp">日本汉字</option>
+              <option value="t">OpenCC</option>
+            </select></div>
+          <div class="sel-no">目标语言：<select name="target" id="target">
+              <option value="cn" selected>简中</option>
+              <option value="tw">台湾</option>
+              <option value="twp">台湾本土化</option>
+              <option value="hk">香港</option>
+              <option value="jp">日本汉字</option>
+              <option value="t">OpenCC</option>
+            </select></div>
+        </section>
+        <section>
+          <div class="sel-no"><button id="switch">切换</button></div>
+        </section>
+      </div>
+      <div class="sel-no">打开文件：<button id="op-btn">选择文件</button>&nbsp;<span></span><input id="op-multi" type="file"
+          accept=".txt,.xml,.ass,.ssa,.srt,.bat,.html,.md,.json,.bat," multiple style="display:none"></div>
+      <div class="sel-no"><button id="convert">转换</button>&emsp;<button id="reconvert">逆转</button>&nbsp;<span
+          class="clue"></span></div>
+      <div><button id="download">下载</button></div>
+      <hr>
+    </section>
+    <div class="sel-no">预览：</div>
+    <div class="preview beauty-scrollbar">Hello World!
+    </div>
+    <h3 class="sel-no">【文本转换】</h3>
+    <div class="box">
+      <textarea name="source" id="sourceBox" cols="55" rows="8" placeholder="请输入想要转换的文字..."></textarea>
+    </div>
+    <div><button id="start">点击转换</button></div>
+    <div class="box">
+      <textarea name="target" id="targetBox" cols="55" rows="8" placeholder="转换结果"></textarea>
+    </div>
+  </section>
+
+  <!-- 日志栏 -->
+  <div class="log-box" title="任务日志">
+    <div class="log-lines">
+      <code class="beauty-scrollbar"></code>
+    </div>
+    <div class="clean-log"><button id="delog">清空</button></div>
+    <div class="auther">
+      <code>by <a class="author" href="https://github.com/echopan" target="_blank" title="作者 GitHub">Echo Pan</a>, 2024/10/06</code>
+    </div>
+    <div class="slide-bar" title="折叠/展开"><code>☰</code></div>
+  </div>
+</body>
+
+</html>
