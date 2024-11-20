@@ -32,20 +32,31 @@
       obtn.click(() => { ofile.click(); });
       ofile.change(function () {
         if ($(this).prop('files').length == 0) return;
-        $('.preview').html("Hello World!");
-        $('.clue').text('');
-        zip = null;
-        filename = 'result.txt';
-        ifCvt = false;
-        files = $(this).prop('files');
-        flen = files.length;
-        obtn.next('span').html("已选择 " + flen + " 个文件");
-        wlog("已选择 " + flen + " 个文件", 'note');
-        if (flen == 0) return;
-        for (let i = 0; i < flen; i++) {
-          wlog(files[i].name);
-        }
+        initSets($(this).prop('files'));
       });
+      /*拖放文件*/
+      let dragCounter = 0;
+      document.ondragover = () => false;
+      document.ondragleave = (e) => {
+        e.preventDefault();
+        dragCounter--;
+        if (dragCounter == 0) {
+          $('.mask').hide();
+        }
+      };
+      document.ondragenter = (e) => {
+        e.preventDefault();
+        if (dragCounter == 0) {
+          $('.mask').show();
+        }
+        dragCounter++;
+      };
+      document.ondrop = (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        $('.mask').hide();
+        initSets(e.dataTransfer.files);
+      };
       /*文件转换*/
       $('[id$=convert]').click(
         function () {
@@ -131,62 +142,79 @@
       /*清空日志*/
       $('#delog').click(function () {
         $('.log-lines>code').html('');
-      })
+      });
       /*开关日志*/
       $('.slide-bar').click(function () {
         let col = $(this).parent();
         if (col.is('.minimize')) col.removeClass('minimize');
         else col.addClass('minimize');
       });
-    });
-    //下载
-    function downloadFile(blob, name) {
-      let url = URL.createObjectURL(blob);
-      let a = $(`<a>d</a>`);
-      a.css({ "display": "none" })
-        .attr({ 'href': url, 'download': name })
-        .appendTo($('body'));
-      a[0].click();
-      URL.revokeObjectURL(url);
-      a.remove();
-    }
-    //转换
-    function Cvt(src, obj) {
-      return OpenCC.Converter({
-        from: src,
-        to: obj
-      })
-    }
-    //写入日志
-    function wlog(i, lv) {
-      if (lv == null) lv = "info";
-      let log = $('.log-lines>code');
-      let content = $(`<span class='${lv}'>${getDate() + i}</span><br>`);
-      log.append(content);
-      log[0].scrollTop = log[0].scrollHeight;
-    }
-    //日期获取
-    function getDate() {
-      //Sun Oct 06 2024 10:23:37 GMT+0800
-      let d = (new Date() + "").split(" ");
-      let mo = (() => {
-        switch (d[1]) {
-          case "Jan": return "01";
-          case "Fab": return "02";
-          case "Mar": return "03";
-          case "Apr": return "04";
-          case "May": return "05";
-          case "Jun": return "06";
-          case "Jul": return "07";
-          case "Aug": return "08";
-          case "Sep": return "09";
-          case "Oct": return "10";
-          case "Nov": return "11";
-          case "Dec": return "12";
+      //初始化数据
+      function initSets(fs) {
+        $('.preview').html("Hello World!");
+        $('.clue').text('');
+        zip = null;
+        filename = 'result.txt';
+        ifCvt = false;
+        files = fs;
+        flen = files.length;
+        obtn.next('span').html("已选择 " + flen + " 个文件");
+        wlog("已选择 " + flen + " 个文件", 'note');
+        if (flen == 0) return;
+        for (let i = 0; i < flen; i++) {
+          wlog(files[i].name);
         }
-      })();
-      return "[" + d[3].slice(-2) + "/" + mo + "/" + d[2] + " " + d[4].slice(0, 5) + "]";
-    }
+      }
+      //下载
+      function downloadFile(blob, name) {
+        let url = URL.createObjectURL(blob);
+        let a = $(`<a>d</a>`);
+        a.css({ "display": "none" })
+          .attr({ 'href': url, 'download': name })
+          .appendTo($('body'));
+        a[0].click();
+        URL.revokeObjectURL(url);
+        a.remove();
+      }
+      //转换
+      function Cvt(src, obj) {
+        return OpenCC.Converter({
+          from: src,
+          to: obj
+        })
+      }
+      //写入日志
+      function wlog(i, lv) {
+        if (lv == null) lv = "info";
+        if (lv == "error") console.error(i);
+        let log = $('.log-lines>code');
+        let content = $(`<span class='${lv}'>${getDate() + i}</span><br>`);
+        log.append(content);
+        log[0].scrollTop = log[0].scrollHeight;
+      }
+      //日期获取
+      function getDate() {
+        //Sun Oct 06 2024 10:23:37 GMT+0800
+        let d = (new Date() + "").split(" ");
+        let mo = (() => {
+          switch (d[1]) {
+            case "Jan": return "01";
+            case "Fab": return "02";
+            case "Mar": return "03";
+            case "Apr": return "04";
+            case "May": return "05";
+            case "Jun": return "06";
+            case "Jul": return "07";
+            case "Aug": return "08";
+            case "Sep": return "09";
+            case "Oct": return "10";
+            case "Nov": return "11";
+            case "Dec": return "12";
+          }
+        })();
+        return "[" + d[3].slice(-2) + "/" + mo + "/" + d[2] + " " + d[4] + "]";
+      }
+    });
   </script>
   <style>
     ul {
@@ -459,6 +487,38 @@
       padding-left: 1em;
       align-self: center;
     }
+
+    .mask {
+      display: none;
+      opacity: 0.9;
+      box-sizing: border-box;
+      position: absolute;
+      z-index: 10000;
+      width: 100vw;
+      height: 100vh;
+      top: 0;
+      left: 0;
+      margin: 0;
+      padding: 5px;
+      background-color: #fff;
+      background-image: repeating-linear-gradient(-45deg, #bbb, #bbb 0.498%, transparent 0.498%, transparent 0.996%);
+    }
+
+    .mask::before {
+      box-sizing: border-box;
+      color: #888;
+      content: "拖放导入单个或多个纯文本文件\a仅支持 txt、xml、ass、ssa、srt、bat、html、md、json、bat 等格式";
+      white-space: pre-line;
+      width: 100%;
+      height: 100%;
+      background: #ddd;
+      background-clip: content-box;
+      border: 1.5em solid #fff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+    }
   </style>
 </head>
 
@@ -494,7 +554,7 @@
         </section>
       </div>
       <div class="sel-no">打开文件：<button id="op-btn">选择文件</button>&nbsp;<span></span><input id="op-multi" type="file"
-          accept=".txt,.xml,.ass,.ssa,.srt,.bat,.html,.md,.json,.bat," multiple style="display:none"></div>
+          accept=".txt,.xml,.ass,.ssa,.srt,.bat,.html,.md,.json,.bat" multiple style="display:none"></div>
       <div class="sel-no"><button id="convert">转换</button>&emsp;<button id="reconvert">逆转</button>&nbsp;<span
           class="clue"></span></div>
       <div><button id="download">下载</button></div>
@@ -524,6 +584,7 @@
     </div>
     <div class="slide-bar" title="折叠/展开"><code>☰</code></div>
   </div>
+  <div class="mask"></div>
 </body>
 
 </html>
